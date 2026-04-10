@@ -1,0 +1,84 @@
+# ─── Rust build artifacts ─────────────────────────────────────
+/target
+**/*.rs.bk
+*.pdb
+
+# ─── OS metadata ──────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+desktop.ini
+
+# ─── Editor / IDE ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.nvimrc.local
+.editorconfig.local
+
+# ─── Scan output artifacts (user-specific, never commit) ──────
+# Default output filenames from `iam-recon visualize`
+iam_recon_graph.*
+pmapper_graph.*
+# Default output filenames from `iam-recon analysis`
+findings.csv
+findings.json
+findings_ocsf.json
+report.json
+# Any generated graphs/reports dropped in the project root
+/*.svg
+/*.png
+/*.pdf
+/*.graphml
+/*.dot
+/iam_recon_*.json
+/pmapper_*.json
+
+# ─── Local scan cache if someone points storage here ─────────
+# iam-recon normally stores graphs under ~/.local/share/iam-recon,
+# but guard against the current dir being used as a graph root.
+/cache/
+/policies/
+/graph/
+/metadata.json
+# Stray account-ID directories (12 digits) from dev/testing
+/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/
+
+# ─── Test output ──────────────────────────────────────────────
+/test-results/
+/playwright-report/
+/playwright/.cache/
+tarpaulin-report.html
+cobertura.xml
+
+# ─── Benchmarks / profiling ───────────────────────────────────
+*.flamegraph
+perf.data*
+/criterion/
+
+# ─── Logs and temp files ──────────────────────────────────────
+*.log
+*.log.*
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# ─── Secrets (safety net — never commit credentials) ─────────
+.env
+.env.*
+!.env.example
+credentials
+aws-credentials
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ─── Local tool / dev state ───────────────────────────────────
+.direnv/
+.envrc
+.mcp.json
