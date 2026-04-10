@@ -1,5 +1,8 @@
 name: CI
 
+# Runs on every push to main and every PR against main.
+# Purpose: fast feedback on correctness. Does not build release binaries
+# or publish anything — that's handled by release.yml.
 on:
   push:
     branches: [main]
@@ -10,81 +13,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: Check & Test
+  test:
+    name: Check, Lint & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check
-      - run: cargo test
-      - run: cargo clippy -- -W clippy::all
-      - run: cargo fmt -- --check
-
-  build:
-    name: Build (${{ matrix.target }})
-    needs: check
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            artifact: iam-recon-linux-x86_64
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            artifact: iam-recon-macos-x86_64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            artifact: iam-recon-macos-aarch64
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.target }}
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
-      - name: Package binary
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/iam-recon dist/${{ matrix.artifact }}
-          chmod +x dist/${{ matrix.artifact }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
-
-  release:
-    name: Release
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Create release tag
-        id: tag
-        run: |
-          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          SHA=$(git rev-parse --short HEAD)
-          TAG="v${VERSION}-${SHA}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: IAM Recon ${{ steps.tag.outputs.version }}
-          generate_release_notes: true
-          files: |
-            artifacts/iam-recon-linux-x86_64/iam-recon-linux-x86_64
-            artifacts/iam-recon-macos-x86_64/iam-recon-macos-x86_64
-            artifacts/iam-recon-macos-aarch64/iam-recon-macos-aarch64
+      - name: Format check
+        run: cargo fmt -- --check
+      - name: Type check
+        run: cargo check --all-targets
+      - name: Clippy
+        run: cargo clippy --all-targets -- -W clippy::all
+      - name: Unit + integration tests
+        run: cargo test
