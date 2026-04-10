@@ -14,6 +14,18 @@ AWS IAM privilege escalation and attack path mapper. Builds a directed graph of 
 
 ## Screenshots
 
+### Node inspection
+
+Click any principal to see its ARN, attached policies, trust policy, and risk flags in the sidebar. Policies with detected issues show a red risk badge.
+
+![Node details in sidebar](docs/screenshots/02-node-details.png)
+
+### Interactive hover
+
+Hovering over a node pushes neighbors outward so the node pops to the foreground. Non-connected nodes dim, connected edges turn orange. Snaps back on mouse-out.
+
+![Hover push effect](docs/screenshots/03-hover-push.png)
+
 ### Attack path filter
 
 Click `Privesc` to collapse the graph to only admin nodes and the principals with known escalation paths reaching them. Edges show the exact vector (`CreateFunction`, `EC2`, `STS`, etc).
