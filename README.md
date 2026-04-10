@@ -6,37 +6,22 @@ AWS IAM privilege escalation and attack path mapper. Builds a directed graph of 
 
 *The interactive graph explorer — force-directed layout of a real 44-principal AWS account, with admin nodes in red, privesc-capable roles in orange, users in blue, and standard roles in light cyan.*
 
+## Demo
+
+CLI walk-through: `graph display` → `argquery --preset privesc` → `pathfinding` → `analysis`.
+
+![IAM Recon CLI demo](docs/screenshots/demo.gif)
+
+> The raw recording lives at [`docs/screenshots/demo.cast`](docs/screenshots/demo.cast). To replay
+> it in a terminal: `asciinema play docs/screenshots/demo.cast`. You can also upload it to
+> [asciinema.org](https://asciinema.org) with `asciinema upload docs/screenshots/demo.cast` for
+> an interactive web-embedded player (see [asciinema embedding docs](https://docs.asciinema.org/manual/server/embedding/)).
+
 ## Inspired By
 
 - **[PMapper](https://github.com/nccgroup/PMapper)** (NCC Group) -- the original Python IAM privilege escalation mapper, now abandoned. IAM Recon is a ground-up Rust rewrite of PMapper with full feature parity and significant enhancements.
 - **[awspx](https://github.com/FSecureLABS/awspx)** (F-Secure) -- interactive graph visualization of AWS environments. The `--interactive-viz` browser-based graph explorer is inspired by awspx's Cytoscape.js approach.
 - **[pathfinding.cloud](https://pathfinding.cloud)** (Datadog) -- comprehensive database of AWS privilege escalation paths. IAM Recon bundles all 66+ pathfinding.cloud paths at build time and automatically maps findings to known attack vectors with direct links.
-
-## Screenshots
-
-### Node inspection
-
-Click any principal to see its ARN, attached policies, trust policy, and risk flags in the sidebar. Policies with detected issues show a red risk badge.
-
-![Node details in sidebar](docs/screenshots/02-node-details.png)
-
-### Interactive hover
-
-Hovering over a node pushes neighbors outward so the node pops to the foreground. Non-connected nodes dim, connected edges turn orange. Snaps back on mouse-out.
-
-![Hover push effect](docs/screenshots/03-hover-push.png)
-
-### Attack path filter
-
-Click `Privesc` to collapse the graph to only admin nodes and the principals with known escalation paths reaching them. Edges show the exact vector (`CreateFunction`, `EC2`, `STS`, etc).
-
-![Privesc filter — only attack paths visible](docs/screenshots/05-privesc-filter.png)
-
-### Policy viewer with iam-rs risk analysis
-
-Click a policy in the sidebar to open its full JSON. The left panel lists findings from the built-in iam-rs-powered analyzer; the matching statement in the JSON gets a colored left border so you can see exactly what's dangerous.
-
-![Policy modal with dangerous statement highlighted](docs/screenshots/04-policy-modal-risks.png)
 
 ## Features
 

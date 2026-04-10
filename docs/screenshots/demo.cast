@@ -1,4 +1,4 @@
-{"version":3,"term":{"cols":80,"rows":24},"timestamp":1775850153,"idle_time_limit":1.0,"command":"/tmp/iam_recon_demo.sh","env":{"SHELL":"/bin/zsh"}}
+{"version":3,"term":{"cols":130,"rows":32},"timestamp":1775850153,"idle_time_limit":1.0,"command":"/tmp/iam_recon_demo.sh","env":{"SHELL":"/bin/zsh"}}
 [0.011, "o", "\r\n# IAM Recon — AWS IAM privilege escalation & attack path mapper\r\n"]
 [1.507, "o", "\r\n$ iam-recon --account 099633309182 graph display\r\n"]
 [0.816, "o", "\r\n\u001b[2m─────────────────\u001b[0m\r\n  \u001b[1;36mGraph Summary\u001b[0m\r\n\u001b[2m─────────────────\u001b[0m\r\n  \u001b[2mAccount:\u001b[0m  \u001b[1;37m099633309182\u001b[0m\r\n  \u001b[2mVersion:\u001b[0m  \u001b[1;37m1.1.5\u001b[0m\r\n  \u001b[2mNodes:\u001b[0m  \u001b[1;36m44\u001b[0m (\u001b[1;36m1\u001b[0m users, \u001b[1;36m43\u001b[0m roles, \u001b[1;31m5\u001b[0m admins)\r\n  \u001b[2mEdges:\u001b[0m  \u001b[1;37m7\u001b[0m\r\n  \u001b[2mPolicies:\u001b[0m  \u001b[1;37m51\u001b[0m\r\n  \u001b[2mGroups:\u001b[0m  \u001b[1;37m4\u001b[0m\r\n\r\n"]
