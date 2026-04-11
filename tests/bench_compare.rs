@@ -19,10 +19,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 // Pull in crate modules via the library
-use iam_recon::error;
-use iam_recon::model::edge::Edge;
 use iam_recon::model::graph::{Graph, GraphMetadata, IAM_RECON_VERSION};
-use iam_recon::model::group::Group;
 use iam_recon::model::node::Node;
 use iam_recon::model::policy::Policy;
 use iam_recon::policy_eval::authorization;

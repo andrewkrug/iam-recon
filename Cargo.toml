@@ -4,10 +4,42 @@ version = "0.1.0"
 edition = "2021"
 description = "AWS IAM privilege escalation and attack path mapper"
 license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/yourorg/iam-recon"
+homepage = "https://github.com/yourorg/iam-recon"
 
 [[bin]]
 name = "iam-recon"
 path = "src/main.rs"
+
+# ── Debian package metadata (cargo-deb) ──────────────────────
+# Build with:   cargo install cargo-deb && cargo deb --target x86_64-unknown-linux-gnu
+# Output:       target/x86_64-unknown-linux-gnu/debian/iam-recon_<version>_amd64.deb
+[package.metadata.deb]
+maintainer = "IAM Recon Contributors"
+copyright = "2026, IAM Recon Contributors <noreply@example.com>"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+IAM Recon builds a directed graph of AWS IAM principals (users and roles)
+and identifies privilege escalation vectors through 9 service-specific
+edge checkers (IAM, STS, Lambda, EC2, CodeBuild, CloudFormation, AutoScaling,
+SSM, SageMaker). Findings are automatically mapped to known attack paths
+from Datadog's pathfinding.cloud database (bundled at build time).
+
+Features: IAM policy simulation engine, natural-language queries, interactive
+browser-based graph explorer, TUI dashboard, and export to JSON/CSV/OCSF/SVG/PDF.
+
+Inspired by NCC Group's PMapper (now abandoned), F-Secure's awspx, and
+Datadog's pathfinding.cloud.
+"""
+depends = "$auto"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/iam-recon", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/iam-recon/README.md", "644"],
+    ["LICENSE", "usr/share/doc/iam-recon/copyright", "644"],
+]
 
 [dependencies]
 # CLI

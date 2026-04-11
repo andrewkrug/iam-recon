@@ -16,6 +16,15 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Don't waste cache disk on incremental; rust-cache gives us a better story
+  CARGO_INCREMENTAL: 0
+  # Release builds don't need debuginfo — smaller binaries, smaller cache
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+
+# Prevent two releases racing if commits land back-to-back
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -36,23 +45,63 @@ jobs:
             artifact: iam-recon-macos-aarch64
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+
+      # One cache slot per (OS, target) tuple so linux/macos-x86/macos-aarch
+      # each have warm artifacts without thrashing each other.
+      # `save-if: main` ensures only pushes update the cache — reruns of the
+      # same commit still hit the cache but don't rewrite it.
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          shared-key: "iam-recon-release-${{ matrix.target }}"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-all-crates: true
+
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} --locked
+
       - name: Package binary
         run: |
           mkdir -p dist
           cp target/${{ matrix.target }}/release/iam-recon dist/${{ matrix.artifact }}
           chmod +x dist/${{ matrix.artifact }}
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
+
+      # ── Debian package (Linux x86_64 only) ──
+      # Use taiki-e/install-action to pull a pre-built cargo-deb binary from
+      # its GitHub release instead of compiling from source (~2-3 min saved).
+      - name: Install cargo-deb (prebuilt)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Build .deb package
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo deb --target ${{ matrix.target }} --no-build
+
+      - name: Stage .deb for upload
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          mkdir -p dist-deb
+          cp target/${{ matrix.target }}/debian/iam-recon_*_amd64.deb dist-deb/iam-recon_amd64.deb
+
+      - name: Upload .deb artifact
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: iam-recon-deb
+          path: dist-deb/iam-recon_amd64.deb
 
   release:
     name: Publish GitHub Release
@@ -62,9 +111,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+
       - name: Compute tag
         id: tag
         run: |
@@ -73,6 +126,7 @@ jobs:
           TAG="v${VERSION}-${SHA}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -83,3 +137,4 @@ jobs:
             artifacts/iam-recon-linux-x86_64/iam-recon-linux-x86_64
             artifacts/iam-recon-macos-x86_64/iam-recon-macos-x86_64
             artifacts/iam-recon-macos-aarch64/iam-recon-macos-aarch64
+            artifacts/iam-recon-deb/iam-recon_amd64.deb
