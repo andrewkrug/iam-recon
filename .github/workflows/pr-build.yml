@@ -12,6 +12,7 @@ on:
       - 'build.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
       - '.github/workflows/pr-build.yml'
       - '.github/workflows/release.yml'
 
@@ -19,6 +20,8 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 # Cancel superseded PR builds when a new commit arrives on the same PR
 concurrency:
@@ -49,6 +52,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Install mold linker (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
 
       # Share the same cache slot as release.yml but NEVER write to it.
       # PR builds get warm artifacts from main's cache for free, and they
@@ -105,3 +115,6 @@ jobs:
           name: iam-recon-deb
           path: dist-deb/iam-recon_amd64.deb
           retention-days: 7
+
+      - name: sccache stats
+        run: sccache --show-stats || true

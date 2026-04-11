@@ -12,6 +12,7 @@ on:
       - 'build.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
       - '.github/workflows/release.yml'
 
 env:
@@ -20,6 +21,9 @@ env:
   CARGO_INCREMENTAL: 0
   # Release builds don't need debuginfo — smaller binaries, smaller cache
   CARGO_PROFILE_RELEASE_DEBUG: 0
+  # sccache GitHub Actions backend
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 # Prevent two releases racing if commits land back-to-back
 concurrency:
@@ -50,6 +54,15 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      # Fast linker for Linux — 30-90s faster link time on release builds
+      - name: Install mold linker (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      # Compilation-unit cache — complementary to rust-cache (target/)
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
 
       # One cache slot per (OS, target) tuple so linux/macos-x86/macos-aarch
       # each have warm artifacts without thrashing each other.
@@ -102,6 +115,9 @@ jobs:
         with:
           name: iam-recon-deb
           path: dist-deb/iam-recon_amd64.deb
+
+      - name: sccache stats
+        run: sccache --show-stats || true
 
   release:
     name: Publish GitHub Release

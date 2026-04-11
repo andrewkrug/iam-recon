@@ -1,0 +1,76 @@
+# Pre-commit hooks for iam-recon.
+#
+# Install once per clone:
+#   brew install pre-commit      # or: pip install pre-commit
+#   pre-commit install           # wires up .git/hooks/pre-commit
+#
+# Run manually against the whole tree:
+#   pre-commit run --all-files
+#
+# Skip temporarily (emergency only):
+#   git commit --no-verify
+#
+# Hooks:
+#   - cargo fmt      — auto-format Rust code before commit
+#   - cargo check    — fail fast if the workspace doesn't compile
+#   - trufflehog     — scan staged changes for verified secrets
+
+repos:
+  # ── Generic hygiene ────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.cast$|\.gif$|\.png$'
+      - id: end-of-file-fixer
+        exclude: '\.cast$|\.gif$|\.png$'
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # ── Rust: format + type-check ─────────────────────────────────
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Auto-format Rust source with rustfmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: cargo-check
+        name: cargo check
+        description: Fail fast if the workspace does not compile
+        entry: cargo check --all-targets --quiet
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # ── Secret scanning ──────────────────────────────────────────
+  # Scans the staged diff (commit stage) and the full working tree
+  # (push stage) for verified credentials. --only-verified cuts
+  # false positives by actually testing each finding against the
+  # relevant API; unverified candidates are silently dropped.
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.88.0
+    hooks:
+      - id: trufflehog
+        name: trufflehog (verified secrets scan)
+        description: Detect live credentials in staged changes
+        entry: |
+          bash -c '
+            trufflehog git file://. \
+              --since-commit HEAD \
+              --only-verified \
+              --fail \
+              --no-update
+          '
+        language: system
+        stages: [pre-commit, pre-push]

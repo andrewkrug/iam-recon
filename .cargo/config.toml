@@ -1,0 +1,15 @@
+# Linker configuration for faster builds.
+#
+# Linux x86_64: use `mold` — the fastest Linux linker available.
+#   Install: apt-get install -y mold   (or `brew install mold`)
+#
+# macOS: the default Apple linker on Xcode 15+ is already very fast
+#   (the `-ld_new` variant). We don't force lld here because
+#   `brew install llvm` is heavy and Apple's default is competitive.
+#   If you want to try lld anyway:
+#     brew install llvm
+#     export RUSTFLAGS="-C link-arg=-fuse-ld=$(brew --prefix llvm)/bin/ld64.lld"
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

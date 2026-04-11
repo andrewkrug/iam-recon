@@ -16,6 +16,9 @@ env:
   # Faster CI builds: don't bother with full debug info
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
+  # sccache GitHub Actions backend
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: "true"
 
 # Cancel superseded runs — if a new commit pushes to a PR, kill the old run
 concurrency:
@@ -34,11 +37,16 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      # Swatinem/rust-cache handles ~/.cargo/registry, ~/.cargo/git, and target/.
-      # `shared-key` lets this CI job share the same cache slot across runs.
-      # `cache-on-failure` saves cache even when a job fails (so the next
-      # attempt starts with warmed artifacts). `save-if` prevents PRs from
-      # polluting the cache — only main pushes update it, PRs read-only.
+      # Fast linker for Linux — 30-90s faster link time on release builds
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      # Compilation-unit cache — complementary to rust-cache (target/).
+      # rust-cache handles target/ and ~/.cargo; sccache caches individual
+      # crate compilation results keyed by source hash.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -55,3 +63,6 @@ jobs:
         run: cargo clippy --all-targets --locked -- -W clippy::all
       - name: Unit + integration tests
         run: cargo test --locked
+
+      - name: sccache stats
+        run: sccache --show-stats || true
