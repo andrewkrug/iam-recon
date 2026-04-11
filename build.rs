@@ -71,7 +71,7 @@ fn collect_yaml_files(dir: &Path, results: &mut Vec<serde_json::Value>) {
                 collect_yaml_files(&path, results);
             } else if path
                 .extension()
-                .map_or(false, |e| e == "yaml" || e == "yml")
+                .is_some_and(|e| e == "yaml" || e == "yml")
             {
                 if let Ok(contents) = fs::read_to_string(&path) {
                     // Parse YAML to JSON value using a minimal parser

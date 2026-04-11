@@ -1,3 +1,4 @@
+pub mod nlq;
 pub mod presets;
 pub mod query_actions;
 pub mod query_interface;
