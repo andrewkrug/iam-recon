@@ -1764,45 +1764,61 @@ fn handle_key_query(app: &mut App, key: KeyEvent) {
             app.query_history.push(input.clone());
             app.output_lines.push(h(&format!("  > {}", input)));
 
-            match crate::querying::query_actions::execute_query(&app.graph, &input) {
-                Ok(results) => {
-                    if results.is_empty() {
-                        app.output_lines.push(d("  No results."));
-                    } else {
-                        for result in &results {
-                            let name = result.node.searchable_name();
-                            if result.allowed {
-                                if result.edge_list.is_empty() {
-                                    app.output_lines
-                                        .push(g(&format!("  ALLOW {} direct", name)));
+            use crate::querying::nlq;
+            let idx = nlq::FuzzyIndex::from_graph(&app.graph);
+            match nlq::parser::parse(&input) {
+                Ok(parsed) => match nlq::executor::execute(&app.graph, &parsed, &idx) {
+                    Ok(res) => {
+                        for note in &res.notes {
+                            app.output_lines.push(d(&format!("  [note] {}", note)));
+                        }
+                        if res.results.is_empty() && res.pattern_matches.is_empty() {
+                            app.output_lines.push(d("  No results."));
+                        } else {
+                            for qr in &res.results {
+                                let name = qr.node.searchable_name();
+                                if qr.allowed {
+                                    if qr.edge_list.is_empty() {
+                                        app.output_lines
+                                            .push(g(&format!("  ALLOW {} direct", name)));
+                                    } else {
+                                        let hops = qr.edge_list.len();
+                                        let via: Vec<String> = qr
+                                            .edge_list
+                                            .iter()
+                                            .map(|e| {
+                                                format!(
+                                                    "{}[{}]",
+                                                    e.destination.split(':').last().unwrap_or("?"),
+                                                    e.short_reason
+                                                )
+                                            })
+                                            .collect();
+                                        app.output_lines.push(g(&format!(
+                                            "  ALLOW {} via {} hop(s): {}",
+                                            name,
+                                            hops,
+                                            via.join(" -> ")
+                                        )));
+                                    }
                                 } else {
-                                    let hops = result.edge_list.len();
-                                    let via: Vec<String> = result
-                                        .edge_list
-                                        .iter()
-                                        .map(|e| {
-                                            format!(
-                                                "{}[{}]",
-                                                e.destination.split(':').last().unwrap_or("?"),
-                                                e.short_reason
-                                            )
-                                        })
-                                        .collect();
-                                    app.output_lines.push(g(&format!(
-                                        "  ALLOW {} via {} hop(s): {}",
-                                        name,
-                                        hops,
-                                        via.join(" -> ")
-                                    )));
+                                    app.output_lines.push(r(&format!("  DENY  {}", name)));
                                 }
-                            } else {
-                                app.output_lines.push(r(&format!("  DENY  {}", name)));
+                            }
+                            for node in &res.pattern_matches {
+                                app.output_lines
+                                    .push(g(&format!("  MATCH {}", node.searchable_name())));
                             }
                         }
                     }
-                }
+                    Err(e) => {
+                        app.output_lines.push(r(&format!("  Error: {}", e)));
+                    }
+                },
                 Err(e) => {
-                    app.output_lines.push(r(&format!("  Error: {}", e)));
+                    for line in e.render().lines() {
+                        app.output_lines.push(r(line));
+                    }
                 }
             }
             app.output_lines.push(blank());

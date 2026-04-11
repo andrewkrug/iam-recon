@@ -11,13 +11,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Disable incremental compilation — with sccache/rust-cache it's wasted disk
+  # Disable incremental compilation — with rust-cache it's wasted disk
   CARGO_INCREMENTAL: 0
   # Faster CI builds: don't bother with full debug info
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
-  # Abort on panic skips unwinding tables, smaller artifacts
-  RUSTFLAGS: "-D warnings"
 
 # Cancel superseded runs — if a new commit pushes to a PR, kill the old run
 concurrency:

@@ -1,0 +1,107 @@
+name: PR Build
+
+# Validate that the release matrix still compiles on every PR to ANY branch.
+# This runs the same build matrix as release.yml but never publishes a release
+# and never writes to the cache — PR builds are strictly read-only consumers
+# of whatever cache `release.yml` has already populated from main.
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'build.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/pr-build.yml'
+      - '.github/workflows/release.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+
+# Cancel superseded PR builds when a new commit arrives on the same PR
+concurrency:
+  group: pr-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: iam-recon-linux-x86_64
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: iam-recon-macos-x86_64
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: iam-recon-macos-aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Share the same cache slot as release.yml but NEVER write to it.
+      # PR builds get warm artifacts from main's cache for free, and they
+      # cannot pollute that cache with PR-specific artifacts.
+      - name: Cache Rust build artifacts (read-only)
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "iam-recon-release-${{ matrix.target }}"
+          save-if: "false"
+          cache-all-crates: true
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --locked
+
+      - name: Verify binary runs
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: ./target/${{ matrix.target }}/release/iam-recon --version
+
+      - name: Stage binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/iam-recon dist/${{ matrix.artifact }}
+          chmod +x dist/${{ matrix.artifact }}
+
+      # Upload as a short-lived workflow artifact so PR authors can download
+      # and test the binary without waiting for a release.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 7
+
+      # ── Debian package (Linux x86_64 only) — build-only, no publish ──
+      - name: Install cargo-deb (prebuilt)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
+
+      - name: Build .deb package
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo deb --target ${{ matrix.target }} --no-build
+
+      - name: Stage .deb
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          mkdir -p dist-deb
+          cp target/${{ matrix.target }}/debian/iam-recon_*_amd64.deb dist-deb/iam-recon_amd64.deb
+
+      - name: Upload .deb artifact
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: iam-recon-deb
+          path: dist-deb/iam-recon_amd64.deb
+          retention-days: 7

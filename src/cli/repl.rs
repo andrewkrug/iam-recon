@@ -3,7 +3,7 @@ use clap::Args;
 use crate::cli::colors as c;
 use crate::cli::completer::{GraphCompleter, ReplHelper};
 use crate::model::graph::Graph;
-use crate::querying::query_actions;
+use crate::querying::nlq;
 use crate::util::storage;
 
 #[derive(Args)]
@@ -81,17 +81,36 @@ pub fn handle(_args: ReplArgs, account: Option<&str>) -> anyhow::Result<()> {
 
                 let _ = rl.add_history_entry(line);
 
-                match query_actions::execute_query(&graph, line) {
-                    Ok(results) => {
-                        for result in &results {
-                            result.print_result(line, "*");
+                let idx = nlq::FuzzyIndex::from_graph(&graph);
+                match nlq::parser::parse(line) {
+                    Ok(parsed) => match nlq::executor::execute(&graph, &parsed, &idx) {
+                        Ok(result) => {
+                            for note in &result.notes {
+                                println!("  {} {}", c::dim("[note]"), note);
+                            }
+                            for qr in &result.results {
+                                qr.print_result(line, "*");
+                            }
+                            for node in &result.pattern_matches {
+                                println!(
+                                    "  {}",
+                                    c::node_name(
+                                        node.searchable_name(),
+                                        node.is_admin,
+                                        node.is_user()
+                                    )
+                                );
+                            }
+                            if result.results.is_empty() && result.pattern_matches.is_empty() {
+                                println!("  {}", c::dim("No results."));
+                            }
                         }
-                        if results.is_empty() {
-                            println!("  {}", c::dim("No results."));
+                        Err(e) => {
+                            println!("  {} {}", c::bold_red("Error:"), e);
                         }
-                    }
+                    },
                     Err(e) => {
-                        println!("  {} {}", c::bold_red("Error:"), e);
+                        println!("{}", e.render());
                     }
                 }
                 println!();
