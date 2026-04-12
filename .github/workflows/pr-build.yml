@@ -64,13 +64,19 @@ jobs:
       - name: Enable sccache wrapper if healthy
         if: steps.sccache.outcome == 'success'
         shell: bash
+        env:
+          SCCACHE_GHA_ENABLED: "true"
         run: |
+          # Stop any server that started without the GHA backend, then test
+          # with SCCACHE_GHA_ENABLED so the health check actually exercises
+          # the GitHub Actions cache service.
+          sccache --stop-server >/dev/null 2>&1 || true
           if sccache --show-stats >/dev/null 2>&1; then
             echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
             echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-            echo "sccache: enabled"
+            echo "sccache: enabled (GHA backend healthy)"
           else
-            echo "sccache: startup failed, building without it"
+            echo "sccache: GHA cache backend unhealthy, building without it"
           fi
 
       # Share the same cache slot as release.yml but NEVER write to it.
