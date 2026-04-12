@@ -16,9 +16,9 @@ env:
   # Faster CI builds: don't bother with full debug info
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
-  # sccache GitHub Actions backend
-  RUSTC_WRAPPER: sccache
-  SCCACHE_GHA_ENABLED: "true"
+  # NOTE: RUSTC_WRAPPER is set conditionally below — only if sccache actually
+  # starts. If GitHub's artifact cache service is degraded, we fall through
+  # to vanilla cargo instead of hard-failing the whole build.
 
 # Cancel superseded runs — if a new commit pushes to a PR, kill the old run
 concurrency:
@@ -44,8 +44,25 @@ jobs:
       # Compilation-unit cache — complementary to rust-cache (target/).
       # rust-cache handles target/ and ~/.cargo; sccache caches individual
       # crate compilation results keyed by source hash.
+      # continue-on-error: if GitHub's artifact cache service is down,
+      # the step fails but we carry on without sccache instead of crashing
+      # the whole build.
       - name: Setup sccache
+        id: sccache
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Enable sccache wrapper if healthy
+        if: steps.sccache.outcome == 'success'
+        run: |
+          # Verify sccache actually works before enabling it globally
+          if sccache --show-stats >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+            echo "sccache: enabled"
+          else
+            echo "sccache: startup failed, building without it"
+          fi
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -65,4 +82,5 @@ jobs:
         run: cargo test --locked
 
       - name: sccache stats
+        if: env.RUSTC_WRAPPER == 'sccache'
         run: sccache --show-stats || true

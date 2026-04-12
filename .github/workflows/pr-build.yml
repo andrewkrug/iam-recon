@@ -20,8 +20,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
-  RUSTC_WRAPPER: sccache
-  SCCACHE_GHA_ENABLED: "true"
+  # RUSTC_WRAPPER is set conditionally below after sccache health check
 
 # Cancel superseded PR builds when a new commit arrives on the same PR
 concurrency:
@@ -58,7 +57,21 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y mold clang
 
       - name: Setup sccache
+        id: sccache
+        continue-on-error: true
         uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Enable sccache wrapper if healthy
+        if: steps.sccache.outcome == 'success'
+        shell: bash
+        run: |
+          if sccache --show-stats >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+            echo "sccache: enabled"
+          else
+            echo "sccache: startup failed, building without it"
+          fi
 
       # Share the same cache slot as release.yml but NEVER write to it.
       # PR builds get warm artifacts from main's cache for free, and they
@@ -117,4 +130,6 @@ jobs:
           retention-days: 7
 
       - name: sccache stats
+        if: env.RUSTC_WRAPPER == 'sccache'
+        shell: bash
         run: sccache --show-stats || true
