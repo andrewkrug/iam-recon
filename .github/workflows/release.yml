@@ -12,6 +12,7 @@ on:
       - 'build.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
       - '.github/workflows/release.yml'
 
 env:
@@ -20,6 +21,7 @@ env:
   CARGO_INCREMENTAL: 0
   # Release builds don't need debuginfo — smaller binaries, smaller cache
   CARGO_PROFILE_RELEASE_DEBUG: 0
+  # RUSTC_WRAPPER is set conditionally below after sccache health check
 
 # Prevent two releases racing if commits land back-to-back
 concurrency:
@@ -50,6 +52,37 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      # Fast linker for Linux — 30-90s faster link time on release builds
+      - name: Install mold linker (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      # Compilation-unit cache — complementary to rust-cache (target/).
+      # continue-on-error so a transient GitHub cache service outage doesn't
+      # block a release build; we fall through to plain cargo in that case.
+      - name: Setup sccache
+        id: sccache
+        continue-on-error: true
+        uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Enable sccache wrapper if healthy
+        if: steps.sccache.outcome == 'success'
+        shell: bash
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+        run: |
+          # Stop any server that started without the GHA backend, then test
+          # with SCCACHE_GHA_ENABLED so the health check actually exercises
+          # the GitHub Actions cache service.
+          sccache --stop-server >/dev/null 2>&1 || true
+          if sccache --show-stats >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+            echo "sccache: enabled (GHA backend healthy)"
+          else
+            echo "sccache: GHA cache backend unhealthy, building without it"
+          fi
 
       # One cache slot per (OS, target) tuple so linux/macos-x86/macos-aarch
       # each have warm artifacts without thrashing each other.
@@ -102,6 +135,11 @@ jobs:
         with:
           name: iam-recon-deb
           path: dist-deb/iam-recon_amd64.deb
+
+      - name: sccache stats
+        if: env.RUSTC_WRAPPER == 'sccache'
+        shell: bash
+        run: sccache --show-stats || true
 
   release:
     name: Publish GitHub Release

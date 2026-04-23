@@ -11,7 +11,7 @@ BENCH_DIR := ../bench
         docker-python run-python-bench \
         graph-create graph-display graph-list graph-refresh \
         query argquery repl visualize interactive analysis \
-        pathfinding help
+        pathfinding hooks hooks-run help
 
 # ── Default ──────────────────────────────────────────────────────
 all: help
@@ -38,6 +38,29 @@ fmt:                            ## Format code
 
 fmt-check:                      ## Check formatting without modifying
 	$(CARGO) fmt -- --check
+
+# ── Pre-commit hooks ─────────────────────────────────────────────
+hooks:                          ## Install pre-commit hooks (cargo fmt, trufflehog)
+	@command -v pre-commit >/dev/null 2>&1 || { \
+		echo "Installing pre-commit framework..."; \
+		command -v brew >/dev/null 2>&1 && brew install pre-commit || pip install --user pre-commit; \
+	}
+	@command -v trufflehog >/dev/null 2>&1 || { \
+		echo "Installing trufflehog..."; \
+		command -v brew >/dev/null 2>&1 && brew install trufflehog || { \
+			echo "Install trufflehog manually: https://github.com/trufflesecurity/trufflehog#installation"; \
+			exit 1; \
+		}; \
+	}
+	pre-commit install --install-hooks
+	pre-commit install --hook-type pre-push
+	@echo ""
+	@echo "  Pre-commit hooks installed. They will run automatically on 'git commit'."
+	@echo "  Run manually: make hooks-run"
+	@echo "  Bypass once:  git commit --no-verify"
+
+hooks-run:                      ## Run all pre-commit hooks on all files
+	pre-commit run --all-files
 
 # ── Benchmarks ───────────────────────────────────────────────────
 bench:                          ## Run Rust benchmarks (release)
