@@ -250,12 +250,14 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if git diff --quiet -- Formula/iam-recon.rb; then
+          # `git diff` doesn't show untracked files, so a fresh tap creation
+          # would silently no-op. Stage first, then check the index diff.
+          git add Formula/iam-recon.rb
+          if git diff --cached --quiet -- Formula/iam-recon.rb; then
             echo "Formula unchanged — nothing to push."
             exit 0
           fi
 
-          git add Formula/iam-recon.rb
           git commit -m "homebrew: update formula for ${TAG} [skip ci]"
 
           # Retry with rebase in case main moved while the build was running.
