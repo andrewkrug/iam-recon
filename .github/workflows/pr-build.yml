@@ -20,7 +20,6 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
-  # RUSTC_WRAPPER is set conditionally below after sccache health check
 
 # Cancel superseded PR builds when a new commit arrives on the same PR
 concurrency:
@@ -38,6 +37,11 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: iam-recon-linux-x86_64
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            artifact: iam-recon-linux-aarch64
+            deb_arch: arm64
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact: iam-recon-macos-x86_64
@@ -53,31 +57,8 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install mold linker (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y mold clang
-
-      - name: Setup sccache
-        id: sccache
-        continue-on-error: true
-        uses: mozilla-actions/sccache-action@v0.0.6
-
-      - name: Enable sccache wrapper if healthy
-        if: steps.sccache.outcome == 'success'
-        shell: bash
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-        run: |
-          # Stop any server that started without the GHA backend, then test
-          # with SCCACHE_GHA_ENABLED so the health check actually exercises
-          # the GitHub Actions cache service.
-          sccache --stop-server >/dev/null 2>&1 || true
-          if sccache --show-stats >/dev/null 2>&1; then
-            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
-            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-            echo "sccache: enabled (GHA backend healthy)"
-          else
-            echo "sccache: GHA cache backend unhealthy, building without it"
-          fi
 
       # Share the same cache slot as release.yml but NEVER write to it.
       # PR builds get warm artifacts from main's cache for free, and they
@@ -93,7 +74,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }} --locked
 
       - name: Verify binary runs
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'aarch64-unknown-linux-gnu'
         run: ./target/${{ matrix.target }}/release/iam-recon --version
 
       - name: Stage binary
@@ -110,32 +91,27 @@ jobs:
           path: dist/${{ matrix.artifact }}
           retention-days: 7
 
-      # ── Debian package (Linux x86_64 only) — build-only, no publish ──
+      # ── Debian package (Linux targets only) — build-only, no publish ──
       - name: Install cargo-deb (prebuilt)
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb
 
       - name: Build .deb package
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         run: cargo deb --target ${{ matrix.target }} --no-build
 
       - name: Stage .deb
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist-deb
-          cp target/${{ matrix.target }}/debian/iam-recon_*_amd64.deb dist-deb/iam-recon_amd64.deb
+          cp target/${{ matrix.target }}/debian/iam-recon_*_${{ matrix.deb_arch }}.deb dist-deb/iam-recon_${{ matrix.deb_arch }}.deb
 
       - name: Upload .deb artifact
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: iam-recon-deb
-          path: dist-deb/iam-recon_amd64.deb
+          name: iam-recon-deb-${{ matrix.deb_arch }}
+          path: dist-deb/iam-recon_${{ matrix.deb_arch }}.deb
           retention-days: 7
-
-      - name: sccache stats
-        if: env.RUSTC_WRAPPER == 'sccache'
-        shell: bash
-        run: sccache --show-stats || true

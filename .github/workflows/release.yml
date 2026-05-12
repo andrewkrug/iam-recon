@@ -17,11 +17,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Don't waste cache disk on incremental; rust-cache gives us a better story
   CARGO_INCREMENTAL: 0
-  # Release builds don't need debuginfo — smaller binaries, smaller cache
   CARGO_PROFILE_RELEASE_DEBUG: 0
-  # RUSTC_WRAPPER is set conditionally below after sccache health check
 
 # Prevent two releases racing if commits land back-to-back
 concurrency:
@@ -39,6 +36,11 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             artifact: iam-recon-linux-x86_64
+            deb_arch: amd64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            artifact: iam-recon-linux-aarch64
+            deb_arch: arm64
           - target: x86_64-apple-darwin
             os: macos-latest
             artifact: iam-recon-macos-x86_64
@@ -55,37 +57,11 @@ jobs:
 
       # Fast linker for Linux — 30-90s faster link time on release builds
       - name: Install mold linker (Linux only)
-        if: matrix.os == 'ubuntu-latest'
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y mold clang
 
-      # Compilation-unit cache — complementary to rust-cache (target/).
-      # continue-on-error so a transient GitHub cache service outage doesn't
-      # block a release build; we fall through to plain cargo in that case.
-      - name: Setup sccache
-        id: sccache
-        continue-on-error: true
-        uses: mozilla-actions/sccache-action@v0.0.6
-
-      - name: Enable sccache wrapper if healthy
-        if: steps.sccache.outcome == 'success'
-        shell: bash
-        env:
-          SCCACHE_GHA_ENABLED: "true"
-        run: |
-          # Stop any server that started without the GHA backend, then test
-          # with SCCACHE_GHA_ENABLED so the health check actually exercises
-          # the GitHub Actions cache service.
-          sccache --stop-server >/dev/null 2>&1 || true
-          if sccache --show-stats >/dev/null 2>&1; then
-            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
-            echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-            echo "sccache: enabled (GHA backend healthy)"
-          else
-            echo "sccache: GHA cache backend unhealthy, building without it"
-          fi
-
-      # One cache slot per (OS, target) tuple so linux/macos-x86/macos-aarch
-      # each have warm artifacts without thrashing each other.
+      # One cache slot per (OS, target) tuple so each platform has warm
+      # artifacts without thrashing each other.
       # `save-if: main` ensures only pushes update the cache — reruns of the
       # same commit still hit the cache but don't rewrite it.
       - name: Cache Rust build artifacts
@@ -110,36 +86,31 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}
 
-      # ── Debian package (Linux x86_64 only) ──
+      # ── Debian package (Linux targets only) ──
       # Use taiki-e/install-action to pull a pre-built cargo-deb binary from
       # its GitHub release instead of compiling from source (~2-3 min saved).
       - name: Install cargo-deb (prebuilt)
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deb
 
       - name: Build .deb package
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         run: cargo deb --target ${{ matrix.target }} --no-build
 
       - name: Stage .deb for upload
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist-deb
-          cp target/${{ matrix.target }}/debian/iam-recon_*_amd64.deb dist-deb/iam-recon_amd64.deb
+          cp target/${{ matrix.target }}/debian/iam-recon_*_${{ matrix.deb_arch }}.deb dist-deb/iam-recon_${{ matrix.deb_arch }}.deb
 
       - name: Upload .deb artifact
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
-          name: iam-recon-deb
-          path: dist-deb/iam-recon_amd64.deb
-
-      - name: sccache stats
-        if: env.RUSTC_WRAPPER == 'sccache'
-        shell: bash
-        run: sccache --show-stats || true
+          name: iam-recon-deb-${{ matrix.deb_arch }}
+          path: dist-deb/iam-recon_${{ matrix.deb_arch }}.deb
 
   release:
     name: Publish GitHub Release
@@ -147,6 +118,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -173,6 +147,111 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/iam-recon-linux-x86_64/iam-recon-linux-x86_64
+            artifacts/iam-recon-linux-aarch64/iam-recon-linux-aarch64
             artifacts/iam-recon-macos-x86_64/iam-recon-macos-x86_64
             artifacts/iam-recon-macos-aarch64/iam-recon-macos-aarch64
-            artifacts/iam-recon-deb/iam-recon_amd64.deb
+            artifacts/iam-recon-deb-amd64/iam-recon_amd64.deb
+            artifacts/iam-recon-deb-arm64/iam-recon_arm64.deb
+
+  # ── Homebrew tap update ──
+  # After the GitHub release is published, regenerate the formula in
+  # andrewkrug/homebrew-iam-recon pointing at the new release assets and
+  # push it. Requires repo secret HOMEBREW_TAP_TOKEN — a fine-grained PAT
+  # with contents:write on the tap repo only (not on iam-recon itself).
+  homebrew:
+    name: Update Homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    if: needs.release.result == 'success'
+    steps:
+      - name: Wait for release assets to be queryable
+        # softprops/action-gh-release returns before the GitHub CDN has the
+        # asset URLs hot. A short pause avoids a 404 on the curl below.
+        run: sleep 15
+
+      - name: Compute formula
+        id: formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+          VERSION: ${{ needs.release.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/${REPO}/releases/download/${TAG}"
+          tmp=$(mktemp -d)
+          for f in iam-recon-macos-aarch64 iam-recon-macos-x86_64 \
+                   iam-recon-linux-aarch64 iam-recon-linux-x86_64; do
+            curl -fSL "${base}/${f}" -o "${tmp}/${f}"
+          done
+          sha_macos_arm=$(sha256sum "${tmp}/iam-recon-macos-aarch64" | awk '{print $1}')
+          sha_macos_x86=$(sha256sum "${tmp}/iam-recon-macos-x86_64"  | awk '{print $1}')
+          sha_linux_arm=$(sha256sum "${tmp}/iam-recon-linux-aarch64" | awk '{print $1}')
+          sha_linux_x86=$(sha256sum "${tmp}/iam-recon-linux-x86_64"  | awk '{print $1}')
+
+          mkdir -p Formula
+          cat > Formula/iam-recon.rb <<EOF
+          class IamRecon < Formula
+            desc "AWS IAM privilege escalation and attack path mapper"
+            homepage "https://github.com/${REPO}"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "${base}/iam-recon-macos-aarch64"
+                sha256 "${sha_macos_arm}"
+              else
+                url "${base}/iam-recon-macos-x86_64"
+                sha256 "${sha_macos_x86}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "${base}/iam-recon-linux-aarch64"
+                sha256 "${sha_linux_arm}"
+              else
+                url "${base}/iam-recon-linux-x86_64"
+                sha256 "${sha_linux_x86}"
+              end
+            end
+
+            def install
+              bin.install Dir["*"].first => "iam-recon"
+            end
+
+            test do
+              system "#{bin}/iam-recon", "--version"
+            end
+          end
+          EOF
+          echo "formula written:"
+          cat Formula/iam-recon.rb
+
+      - name: Push formula to tap repo
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ needs.release.outputs.tag }}
+          TAP_REPO: andrewkrug/homebrew-iam-recon
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::HOMEBREW_TAP_TOKEN secret not set — skipping tap update."
+            echo "Create a fine-grained PAT with contents:write on ${TAP_REPO} and add it as HOMEBREW_TAP_TOKEN."
+            exit 0
+          fi
+          tap_dir=$(mktemp -d)
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" "${tap_dir}"
+          mkdir -p "${tap_dir}/Formula"
+          cp Formula/iam-recon.rb "${tap_dir}/Formula/iam-recon.rb"
+          cd "${tap_dir}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "Formula unchanged — nothing to push."
+            exit 0
+          fi
+          git add Formula/iam-recon.rb
+          git commit -m "iam-recon ${TAG}"
+          git push origin HEAD
