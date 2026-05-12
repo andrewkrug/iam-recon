@@ -161,8 +161,9 @@ jobs:
   #   brew tap andrewkrug/iam-recon https://github.com/andrewkrug/iam-recon
   #   brew install andrewkrug/iam-recon/iam-recon
   #
-  # The formula commit uses [skip ci] so it doesn't trigger ci.yml. release.yml
-  # already ignores Formula/** via its paths filter, so no infinite loop risk.
+  # The formula commit message is tagged with the GHA skip-ci marker so the
+  # commit doesn't re-trigger ci.yml. release.yml's paths filter already
+  # excludes Formula/**, so no infinite loop risk on this workflow either.
   homebrew:
     name: Update Homebrew formula
     needs: release
