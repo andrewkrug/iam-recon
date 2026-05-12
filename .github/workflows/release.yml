@@ -153,26 +153,38 @@ jobs:
             artifacts/iam-recon-deb-amd64/iam-recon_amd64.deb
             artifacts/iam-recon-deb-arm64/iam-recon_arm64.deb
 
-  # ── Homebrew tap update ──
-  # After the GitHub release is published, regenerate the formula in
-  # andrewkrug/homebrew-iam-recon pointing at the new release assets and
-  # push it. Requires repo secret HOMEBREW_TAP_TOKEN — a fine-grained PAT
-  # with contents:write on the tap repo only (not on iam-recon itself).
+  # ── Homebrew formula (single-repo tap) ──
+  # This repo doubles as the Homebrew tap. After each release publish, fetch
+  # the binaries we just uploaded, hash them, regenerate Formula/iam-recon.rb,
+  # and commit it back to main. Users tap with the explicit URL form:
+  #
+  #   brew tap andrewkrug/iam-recon https://github.com/andrewkrug/iam-recon
+  #   brew install andrewkrug/iam-recon/iam-recon
+  #
+  # The formula commit uses [skip ci] so it doesn't trigger ci.yml. release.yml
+  # already ignores Formula/** via its paths filter, so no infinite loop risk.
   homebrew:
-    name: Update Homebrew tap
+    name: Update Homebrew formula
     needs: release
     runs-on: ubuntu-latest
     if: needs.release.result == 'success'
+    permissions:
+      contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          # Persist the default GITHUB_TOKEN so the later git push works.
+          persist-credentials: true
+
       - name: Wait for release assets to be queryable
         # softprops/action-gh-release returns before the GitHub CDN has the
         # asset URLs hot. A short pause avoids a 404 on the curl below.
         run: sleep 15
 
-      - name: Compute formula
-        id: formula
+      - name: Generate formula
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.release.outputs.tag }}
           VERSION: ${{ needs.release.outputs.version }}
           REPO: ${{ github.repository }}
@@ -229,29 +241,33 @@ jobs:
           echo "formula written:"
           cat Formula/iam-recon.rb
 
-      - name: Push formula to tap repo
+      - name: Commit formula back to main
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG: ${{ needs.release.outputs.tag }}
-          TAP_REPO: andrewkrug/homebrew-iam-recon
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN secret not set — skipping tap update."
-            echo "Create a fine-grained PAT with contents:write on ${TAP_REPO} and add it as HOMEBREW_TAP_TOKEN."
-            exit 0
-          fi
-          tap_dir=$(mktemp -d)
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${TAP_REPO}.git" "${tap_dir}"
-          mkdir -p "${tap_dir}/Formula"
-          cp Formula/iam-recon.rb "${tap_dir}/Formula/iam-recon.rb"
-          cd "${tap_dir}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
+
+          if git diff --quiet -- Formula/iam-recon.rb; then
             echo "Formula unchanged — nothing to push."
             exit 0
           fi
+
           git add Formula/iam-recon.rb
-          git commit -m "iam-recon ${TAG}"
-          git push origin HEAD
+          git commit -m "homebrew: update formula for ${TAG} [skip ci]"
+
+          # Retry with rebase in case main moved while the build was running.
+          # Concurrency on the release job serializes our own runs, but a
+          # human merge can land in between.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push rejected, rebasing..."
+            git fetch origin main
+            git rebase origin/main || { git rebase --abort; exit 1; }
+          done
+          echo "failed to push formula after 3 attempts"
+          exit 1
